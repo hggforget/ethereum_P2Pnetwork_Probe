@@ -8,10 +8,10 @@ def buildnet(Nodes,Connections):
     for i in Nodes:
         Num += 1
         nodes.update({i: Num})
-        G.add_node(Num)
+        G.add_node(i)
     for i in Connections:
         if nodes.get(i[0]) and nodes.get(i[1]):
-            G.add_edge(nodes.get(i[0]), nodes.get(i[1]))
+            G.add_edge(i[0], i[1])
     return G
 def pltnet(G):
     nx.draw(G,pos = nx.random_layout(G),node_color = 'b',edge_color = 'r',with_labels = True,font_size =0,node_size =20)
