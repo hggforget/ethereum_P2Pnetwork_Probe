@@ -28,12 +28,13 @@ CREATE TABLE `ethereum`  (
   `pingtime` int(10) UNSIGNED NULL DEFAULT 0,
   `port` int(11) NULL DEFAULT 0,
   `ip` varchar(128) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT '',
-  `pongtime` datetime(0) NULL DEFAULT NULL,
+  `pongtime` int(10) NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `noideid`(`nodeid`) USING BTREE,
-  UNIQUE INDEX `publickey`(`publickey`) USING BTREE,
+  INDEX `noideid`(`nodeid`) USING BTREE,
+  INDEX `publickey`(`publickey`) USING BTREE,
   INDEX `pingtime`(`pingtime`) USING BTREE,
-  INDEX `pongtime`(`pongtime`) USING BTREE
+  INDEX `pongtime`(`pongtime`) USING BTREE,
+  UNIQUE INDEX `r`(`nodeid`,`port`,`ip`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1281456 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -46,7 +47,7 @@ CREATE TABLE `ethereum_neighbours`  (
   `nodeid2` char(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
   `update_time` datetime(0) NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `r`(`nodeid1`, `nodeid2`) USING BTREE,
+  UNIQUE INDEX `r`(`nodeid1`, `nodeid2`,`update_time`) USING BTREE,
   INDEX `date_time`(`nodeid1`, `update_time`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 998318 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
 
@@ -59,10 +60,10 @@ CREATE TABLE `ethereum_active_nodes`  (
   `pingtime` int(10) UNSIGNED NULL DEFAULT 0,
   `port` int(11) NULL DEFAULT 0,
   `ip` varchar(128) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT '',
-  `pongtime` datetime(0) NULL DEFAULT NULL,
+  `pongtime` int(10)  NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `noideid`(`nodeid`) USING BTREE,
-  UNIQUE INDEX `publickey`(`publickey`) USING BTREE,
+  INDEX `publickey`(`publickey`) USING BTREE,
   INDEX `pingtime`(`pingtime`) USING BTREE,
   INDEX `pongtime`(`pongtime`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1281456 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;

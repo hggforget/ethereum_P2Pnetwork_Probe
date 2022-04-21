@@ -33,6 +33,7 @@ CMD_ENR_RESPONSE = 6
 MAC_SIZE = 256 // 8
 SIG_SIZE = 520 // 8  # 65
 HEAD_SIZE = MAC_SIZE + SIG_SIZE
+CYCLE_TIME=int(time.time()+60*60)
 sem = asyncio.Semaphore(100) #一次最多同时连接查询100个节点
 
 
@@ -188,7 +189,7 @@ async def addtodb_active(db,arr):
         将活跃节点加入数据库
     '''
     if arr:
-        sql = "insert ignore into ethereum_active_nodes (nodeid,ip,port,publickey) values (%s,%s,%s,%s)"
+        sql = "insert ignore into ethereum_active_nodes (nodeid,ip,port,publickey,pongtime) values (%s,%s,%s,%s,%s)"
         await db.executemany(sql,arr)
 
 async def recv_pong_v4(remote_publickey,remote_address, payload, _: Hash32,db) -> None:
@@ -197,7 +198,7 @@ async def recv_pong_v4(remote_publickey,remote_address, payload, _: Hash32,db) -
     '''
         若己方收到PONG报文：说明我们PING对方的时候，对方有回应，则该节点为活跃节点，加入数据库
     '''
-    await addtodb_active(db, [[keccak256(remote_publickey.to_bytes()).hex(), remote_address[0], remote_address[1], remote_publickey.to_bytes().hex()]])
+    await addtodb_active(db, [[keccak256(remote_publickey.to_bytes()).hex(), remote_address[0], remote_address[1], remote_publickey.to_bytes().hex(),nowtime]])
     await sendlookuptonode(remote_publickey,remote_address)
 
 
@@ -234,7 +235,7 @@ async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32
         await addtodb(db,arr)
     if update_arr:
 
-        sql="insert into ethereum_neighbours (nodeid1,nodeid2,update_time) values (%s,%s,%s) ON DUPLICATE KEY UPDATE update_time=VALUES(update_time)"
+        sql="insert into ethereum_neighbours (nodeid1,nodeid2,update_time) values (%s,%s,%s)"
         await db.executemany(sql,update_arr)
 
 
@@ -327,10 +328,12 @@ async def find_node_to_ping(redis):
     nowtime=int(time.time())
     sql=f"select id,nodeid,ip,port from ethereum where pingtime<{nowtime}"
     result=await redis.execute(sql,1)
-    tmpid=[str(row[0]) for row in result]
-    if tmpid:
+    '''
+        tmpid=[str(row[0]) for row in result]
+        if tmpid:
         sql=f"update ethereum set pingtime={nowtime+300} where id in ({','.join(tmpid)})"
         await redis.execute(sql)
+    '''
     tasks = []
     for row in result:
         nodeid = row[1]
@@ -348,7 +351,7 @@ async def main(db):
         await asyncio.sleep(120)
 from db import Db
 async def getredis():
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p4', 'databaseip': 'localhost',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p5', 'databaseip': 'localhost',
                 'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget', 'condition': '',
                 'conditionarr': []}
     db=await Db(dbconfig)
@@ -364,6 +367,11 @@ async def send(ipport, cmd_id, payload) -> bytes:
             print(ipport)
     return message
 if __name__=='__main__':
+    with open('CYCLE_TIME.txt', 'w', encoding='utf-8') as file_obj:
+        file_obj.seek(0)
+        file_obj.truncate()  # 清空文件
+        file_obj.write(CYCLE_TIME.__str__())
+        file_obj.close()
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0',30304))

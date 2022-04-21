@@ -25,7 +25,7 @@ def net_analyzer(G):
     degrees=list()
     for i in Degrees:
         sum+=i[1]
-        if(i[1]>5):
+        if(i[1]>2):
             degrees.append(i[1])
     print("平均度 "+(sum/len(nodes)).__str__())
     nx.degree_centrality(G)
@@ -35,7 +35,7 @@ def net_analyzer(G):
     print("平均聚集系数: "+nx.average_clustering(G).__str__())
    # print("average_neighbor_degree: "+nx.average_neighbor_degree(G).__str__())
     print("网络直径: " + nx.diameter(G).__str__())
-    print("度数大于5的节点数: "+len(degrees).__str__())
+    print("度数大于2的节点数: "+len(degrees).__str__())
     plt.hist(degrees, bins=10)
     plt.xlabel("degrees")
     plt.ylabel("nodes")

@@ -15,6 +15,13 @@ def ask4region(ip):
     return node
 
 def createjson(name,G,id2ip):
+    '''
+    :param name:  json文件名
+    :param G:     该网络
+    :param id2ip: nodeid与ip的映射
+    :return:
+            初始化操作
+    '''
     filename=name+'.json'
     content=dict()
     nodes=list(G.nodes())
@@ -24,14 +31,20 @@ def createjson(name,G,id2ip):
     regions = hashrate['country']
     regions = set(regions.values)
     Num=0
+    '''
+        建立nodeid到Num的映射
+    '''
     map_id2Num=dict()
     for node in nodes:
         Num+=1
         map_id2Num.update({node:Num})
+    '''
+        导入节点信息
+    '''
     for node in nodes:
         ip=id2ip[node]
         try:
-            region = ask4region(ip)
+            region = ask4region(ip)  #爬虫 获得 ip归属地
             region.update({'nodeid': node})
             region.update({'Num': map_id2Num.get(node)})
             if {region.get('country')}&regions:
