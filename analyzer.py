@@ -64,7 +64,7 @@ if __name__ == '__main__':
     print("--------------------------------")
     print("(度大于1的节点 | 有路由表的节点) & 活跃节点  组成的网络")
     net.net_analyzer(G3)
-    getjson.createjson('G3',G3,id2ip)
+    getjson.createjson('init_data',G3,id2ip)
     print("--------------------------------")
     for i in route_node:
         sql="SELECT nodeid2 from ethereum_neighbours where nodeid1='%s'" % (i[0])

@@ -1,4 +1,7 @@
 import json
+import xlrd
+import openpyxl
+import pandas as pd
 from processor_db import *
 import requests
 requests.adapters.DEFAULT_RETRIES = 5
@@ -15,19 +18,36 @@ def createjson(name,G,id2ip):
     filename=name+'.json'
     content=dict()
     nodes=list(G.nodes())
+    hashrate_file = 'hashret.xlsx'
+    hashrate = pd.read_excel(hashrate_file, header=0)
+    print(hashrate.columns)
+    regions = hashrate['country']
+    regions = set(regions.values)
     Num=0
-    for i in nodes:
-        ip=id2ip[i]
+    map_id2Num=dict()
+    for node in nodes:
+        Num+=1
+        map_id2Num.update({node:Num})
+    for node in nodes:
+        ip=id2ip[node]
         try:
             region = ask4region(ip)
-            region.update({'nodeid': i})
-            Num += 1
-            region.update({'Num': Num})
-            content.update({'nodeNum_' + Num.__str__(): region})
+            region.update({'nodeid': node})
+            region.update({'Num': map_id2Num.get(node)})
+            if {region.get('country')}&regions:
+                region.update({'region':region.get('country')})
+            else:
+                region.update({'region':'其他'})
+            region.update({'NumConnections':G.degree(node)})
+            neighbors=list()
+            for neighbor in G.edges(node):
+                neighbors.append(map_id2Num.get(neighbor[1]))
+            region.update({'neighbors':neighbors})
+            content.update({'nodeNum_' + map_id2Num.get(node).__str__(): region})
+            print(region)
         except Exception as e:
             print(e)
-    connections=list(G.edges())
-    content.update({'connections':connections})
+    content.update({'Num':Num})
     tojson=json.dumps(content,ensure_ascii=False)
     #print(tojson)
     with open(filename,'w',encoding='utf-8') as file_obj:
