@@ -33,10 +33,13 @@ CMD_ENR_RESPONSE = 6
 MAC_SIZE = 256 // 8
 SIG_SIZE = 520 // 8  # 65
 HEAD_SIZE = MAC_SIZE + SIG_SIZE
-CYCLE_TIME=int(time.time()+60*60)
+CYCLE_TIME=int(60*30)
+BEGIN_TIME=int(time.time())
 sem = asyncio.Semaphore(100) #一次最多同时连接查询100个节点
 
-
+'''
+    获取外部ip地址  算是一种内网转外网
+'''
 
 def get_external_ipaddress() -> ipaddress.IPv4Address:
     for iface in netifaces.interfaces():
@@ -49,8 +52,15 @@ def get_external_ipaddress() -> ipaddress.IPv4Address:
                     return iface_addr
     return ipaddress.ip_address('127.0.0.1')
 
+'''
+    获得包的过期时间
+'''
 def _get_msg_expiration() -> bytes:
     return rlp.sedes.big_endian_int.serialize(int(time.time() + 60))
+
+'''
+    载入公钥 若不存在key文件 则自动创建
+'''
 def init():
     if os.path.exists('key'):
         try:
@@ -66,6 +76,9 @@ def init():
        f.write(eth_k.to_bytes())
     return eth_k
 eth_k=init()
+'''
+    加密
+'''
 def keccak256(s):
     k = sha3.keccak_256()
     k.update(s)
@@ -78,6 +91,9 @@ def get_local_enr_seq():
     global sequence_number
     sequence_number+=1
     return sequence_number
+'''
+    int转大端排列 （符合网络传输的格式要求
+'''
 def int_to_big_endian4(integer: int) -> bytes:
     return struct.pack('>I', integer)
 def int_to_big_endian(value: int) -> bytes:
@@ -86,6 +102,9 @@ def big_endian_to_int(value: bytes) -> int:
     return int.from_bytes(value, "big")
 def enc_port(p: int) -> bytes:
     return int_to_big_endian4(p)[-2:]
+'''
+    判断消息是否过期
+'''
 def _is_msg_expired(rlp_expiration: bytes) -> bool:
     expiration = rlp.sedes.big_endian_int.deserialize(rlp_expiration)
     if time.time() > expiration:
@@ -198,7 +217,8 @@ async def recv_pong_v4(remote_publickey,remote_address, payload, _: Hash32,db) -
     '''
         若己方收到PONG报文：说明我们PING对方的时候，对方有回应，则该节点为活跃节点，加入数据库
     '''
-    await addtodb_active(db, [[keccak256(remote_publickey.to_bytes()).hex(), remote_address[0], remote_address[1], remote_publickey.to_bytes().hex(),nowtime]])
+    if nowtime<=BEGIN_TIME+CYCLE_TIME:
+        await addtodb_active(db, [[keccak256(remote_publickey.to_bytes()).hex(), remote_address[0], remote_address[1], remote_publickey.to_bytes().hex(),nowtime]])
     await sendlookuptonode(remote_publickey,remote_address)
 
 
@@ -209,12 +229,14 @@ async def addtodb(db,arr):
         await db.executemany(sql,arr)
 
 import datetime
+RECV_NUM=1
 async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32,db) -> None:
 
     # The neighbours payload should have 2 elements: nodes, expiration
     if len(payload) < 2:
         print('neighbors wrong')
         return
+    print("nerighbor!")
     nodes, expiration = payload[:2]
     arr=[]
     update_arr=[]
@@ -226,16 +248,16 @@ async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32
             ip=ipaddress.ip_address(ip)
             udp_port=big_endian_to_int(udp_port)
             node_id=keccak256(publickey).hex()
-            update_arr.append([nodeid1,node_id,tm])
+            update_arr.append([nodeid1,node_id,tm,int(time.time()),RECV_NUM])
             arr.append([node_id,str(ip),udp_port,publickey.hex()])
         except Exception as e:
             print(e)
             continue
-    if arr:
+    if arr and int(time.time())<=BEGIN_TIME+CYCLE_TIME:
         await addtodb(db,arr)
     if update_arr:
 
-        sql="insert into ethereum_neighbours (nodeid1,nodeid2,update_time) values (%s,%s,%s)"
+        sql="insert into ethereum_neighbours (nodeid1,nodeid2,update_time,intTIME,RECV_NUM) values (%s,%s,%s,%s,%s)"
         await db.executemany(sql,update_arr)
 
 
@@ -245,8 +267,10 @@ async def recv_ping_v4(
     targetnodeid = keccak256(remotepk.to_bytes())
     if targetnodeid.hex()  == myid:
         return
-    print('ping insert',[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()])
-    await addtodb(db,[[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()]])
+    if int(time.time())<=(BEGIN_TIME+CYCLE_TIME):
+        print(int(time.time()).__str__()+"   "+(BEGIN_TIME+CYCLE_TIME).__str__())
+        print('ping insert',[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()])
+        await addtodb(db,[[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()]])
 
     if len(payload) < 4:
         print('error ping')
@@ -258,7 +282,7 @@ async def recv_ping_v4(
         _, _, _, expiration, enr_seq = payload[:5]
         enr_seq = big_endian_to_int(enr_seq)
     if _is_msg_expired(expiration):
-        print('msg ping timeout')
+        #print('msg ping timeout')
         return
     expiration = _get_msg_expiration()
     local_enr_seq = get_local_enr_seq()
@@ -307,7 +331,7 @@ async def send_ping_v4(hostname,port):
     local_enr_seq = get_local_enr_seq()
     payload = (version, Address('127.0.0.1',30303,30303).to_endpoint(), Address(hostname,port,port).to_endpoint(),
                expiration, int_to_big_endian(local_enr_seq))
-    await send((hostname,port),1,payload)        
+    await send((hostname,port),1,payload)
 
 
 async def inibootstrapnode(redis):
@@ -319,19 +343,19 @@ async def inibootstrapnode(redis):
         hostname=node_parsed.hostname
         strid=keccak256(raw_pubkey).hex()
         hid='hid:'+strid
-        arr.append([strid,raw_pubkey.hex(),hostname,node_parsed.port,int(time.time())])
+        arr.append([strid,raw_pubkey.hex(),hostname,node_parsed.port,0])
     if arr:
         sql="insert ignore into ethereum (nodeid,publickey,ip,port,pingtime) values (%s,%s,%s,%s,%s)"
-
         await redis.executemany(sql,arr)
+
 async def find_node_to_ping(redis):
     nowtime=int(time.time())
-    sql=f"select id,nodeid,ip,port from ethereum where pingtime<{nowtime}"
-    result=await redis.execute(sql,1)
+    sql = f"select id,nodeid,ip,port from ethereum where pingtime<'%d'" %(CYCLE_TIME+BEGIN_TIME)
+    result = await redis.execute(sql, 1)
     '''
-        tmpid=[str(row[0]) for row in result]
-        if tmpid:
-        sql=f"update ethereum set pingtime={nowtime+300} where id in ({','.join(tmpid)})"
+        tmpid = [str(row[0]) for row in result]
+    if tmpid:
+        sql = f"update ethereum set pingtime={nowtime + 300} where id in ({','.join(tmpid)})"
         await redis.execute(sql)
     '''
     tasks = []
@@ -345,13 +369,20 @@ async def find_node_to_ping(redis):
         await asyncio.wait(tasks)
 
 async def main(db):
+    global RECV_NUM
     await inibootstrapnode(redis)
     while 1:
-        await find_node_to_ping(redis)
-        await asyncio.sleep(120)
+        if int(time.time())<=BEGIN_TIME+CYCLE_TIME:
+            await find_node_to_ping(redis)
+            await asyncio.sleep(120)
+        else:
+            RECV_NUM+=1
+            for i in range(15):
+                await find_node_to_ping(redis)
+                await asyncio.sleep(120)
 from db import Db
 async def getredis():
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p5', 'databaseip': 'localhost',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p6', 'databaseip': 'localhost',
                 'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget', 'condition': '',
                 'conditionarr': []}
     db=await Db(dbconfig)
@@ -367,14 +398,9 @@ async def send(ipport, cmd_id, payload) -> bytes:
             print(ipport)
     return message
 if __name__=='__main__':
-    with open('CYCLE_TIME.txt', 'w', encoding='utf-8') as file_obj:
-        file_obj.seek(0)
-        file_obj.truncate()  # 清空文件
-        file_obj.write(CYCLE_TIME.__str__())
-        file_obj.close()
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0',30304))
+    sock.bind(('0.0.0.0',30303))
     loop = asyncio.get_event_loop()
     redis=loop.run_until_complete(getredis())
     loop.add_reader(sock, _onrecv,sock,redis)

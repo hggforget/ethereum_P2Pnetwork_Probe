@@ -8,24 +8,74 @@ import getjson
 import aiomysql
 import asyncio
 # 按间距中的绿色按钮以运行脚本。
-CYCLE_TIME=0
-if __name__ == '__main__':
-    with open('CYCLE_TIME.txt', 'r', encoding='utf-8') as file_obj:
-        data=file_obj.read()
-        CYCLE_TIME=data
-        print(CYCLE_TIME)
-        file_obj.close()
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p5', 'databaseip': 'localhost',
-                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget'}
-    db=Db(dbconfig)
-    db.connect()
+CYCLE_TIME=60*60   #规定每个快照的周期时间 即这个快照是 60*60==3600秒=60分钟 这个时间段的探测情况
+def getchange(NUM,nodeSet,db):
+    '''
+            获取指定节点集的 节点 的邻居变化情况 来作为节点积极度的衡量
+    :param NUM:  我们动态拓扑 的快照的个数 （int）
+    :param nodeSet: 指定节点集  (set)
+    :param db: 数据库指针
+    :return: change_list (dict) key=str(节点名) value=int(积极度)
+    '''
+    prelist = dict()  #该节点前一个快照的邻居
+    change_list=dict()  #该节点 每两个快照间 的邻居变化量
+    '''
+        初始化 prelist  即 置入第一个快照的邻居情况
+        初始化 changelist 每个节点置一个空list
+    '''
+    for node_nei in nodeSet:
+        sql = "SELECT DISTINCT nodeid2 from ethereum_neighbours where nodeid1='%s' AND RECV_NUM='%d'" % (node_nei, 1)
+        nodelist = db.execute(sql)
+        Setnode = set()
+        for node in nodelist:
+            Setnode.add(node[0])
+        prelist.update({node_nei:Setnode})
+        change_list.update({node_nei:list()})
+    '''
+        对于 第i个快照 遍历 指定节点集（nodeSet）的每个节点 获得其在该快照中的邻居情况
+        与前一个快照进行比较
+    '''
+    for i in range(2, NUM + 1):#对于第i个快照
+        for nodeid1 in nodeSet:#遍历指定节点集（nodeSet）
+            sql = "SELECT DISTINCT nodeid2 from ethereum_neighbours where nodeid1='%s' AND RECV_NUM='%d'" % (nodeid1[0], i)
+            nodelist = db.execute(sql)#获得其在该快照中的邻居情况
+            '''
+                数据处理成set
+            '''
+            setnode = set()
+            for node in nodelist:
+                setnode.add(node[0])
+            '''
+                更新change_list
+            '''
+            tmp_List=change_list.get(nodeid1)
+            preset=prelist.get(nodeid1)
+            '''
+                积极度计算方法  （前一个快照的邻居节点集合 并 该快照的邻居节点集合）减 （前一个快照的邻居节点集合 交 该快照的邻居节点集合）
+            '''
+            tmp_List.append(len((setnode|preset)-(setnode&preset)))
+            change_list.update({nodeid1:tmp_List})
+            '''
+                更新prelist
+            '''
+            prelist.update({nodeid1: setnode})
+    for node in nodeSet:
+        change_list.update({node:sum(change_list.get(node))})
+        print(change_list.get(node),node)
+    return change_list
+
+def getdata3(db):
+    '''
+            获取 id 到 ip 与  ip到 id 的映射情况
+    :param db: 数据库指针
+    :return:    id2ips id->（ip的集合）  是一个多射
+                ip2ids ip->（is的集合）  是一个多射
+    '''
     total=db.execute("SELECT DISTINCT nodeid,ip FROM ethereum")
     id2ip=dict()
-    total_tmp=set()
     ips=dict()
     ids=dict()
     for i in total:
-        total_tmp.add(i[0])
         id2ip.update({i[0]:i[1]})
         if ips.get(i[0]):
             tmp=ips.get(i[0])
@@ -53,6 +103,13 @@ if __name__ == '__main__':
                 ip2ids.append(len(ids.get(i)))
         except:
             print(i)
+    return id2ips,ip2ids
+if __name__ == '__main__':
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p6', 'databaseip': 'localhost',
+                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget'}
+    db=Db(dbconfig)
+    db.connect()
+    id2ips,ip2ids=getdata3(db)
     total = db.execute("SELECT DISTINCT nodeid FROM ethereum")
     print("一个nodeid有多个ip")
     print(len(id2ips).__str__() + " : " +len(total).__str__())
@@ -62,16 +119,22 @@ if __name__ == '__main__':
     nodes=set()
     for i in active:
         nodes.add(i[0])
-    print(len(total).__str__()+"  探测到的所有节点")
+    print("探测到的所有节点（从路由表中探测到的节点+被PING时增加的节点）: "+len(total).__str__())
     route_node = db.execute("SELECT DISTINCT nodeid1  FROM ethereum_neighbours")
-    print(len(route_node).__str__() + "  有路由表的节点")
+    print("有路由表的节点: "+len(route_node).__str__())
     route=set()
     for i in route_node:
         route.add(i[0])
-    dis = db.execute("SELECT DISTINCT nodeid2  FROM ethereum_neighbours")
-    print(len(dis).__str__() + " distinct connected nodes")
-    all = db.execute("SELECT  nodeid2  FROM ethereum_neighbours")
-    print(len(all).__str__() + "  connected nodes")
+    BEGIN_TIME=db.execute("SELECT MIN(pingtime)  FROM ethereum")
+    BEGIN_TIME=BEGIN_TIME[0][0]
+    dis = db.execute("SELECT DISTINCT nodeid2  FROM ethereum_neighbours WHERE RECV_NUM='%d'" % (1))
+    print("在路由表中出现的节点 的数量(去重): "+len(dis).__str__())
+    all = db.execute("SELECT  nodeid2  FROM ethereum_neighbours WHERE RECV_NUM='%d'" % (1))
+    print("在路由表中出现的所有节点 的数量（不包含收到PING时增加的节点）: "+len(all).__str__())
+    '''
+        获得重复的节点 有重复代表 度>1
+        对于度==1的点 它是不能路由的 因此我们认为它对网络没贡献
+    '''
     new_dis = set()
     diss=set()
     new_all=set()
@@ -87,28 +150,32 @@ if __name__ == '__main__':
     print(len(new_all).__str__() + "  Nodes with degrees greater than 1")
     conns = db.execute("SELECT DISTINCT nodeid1,nodeid2  FROM ethereum_neighbours")
     num=list()
+    NUM=db.execute("SELECT MAX(RECV_NUM) FROM ethereum_neighbours")
+    NUM=NUM[0][0]
+    print(NUM)
+    getchange(NUM,(new_all|route)&nodes,db)
     G=buildnet(nodes,conns)
     G2=buildnet((new_all|route),conns)
     G3=buildnet((new_all|route)&nodes,conns)
-    G4=buildnet(total_tmp,conns)
-    print("________________________________")
-    print("所有节点组成的网络")
-    net_analyzer(G4)
     print("--------------------------------")
     print("活跃节点（有pong回应的节点）组成的网络")
-    net_analyzer(G)
+    #net_analyzer(G)
     print("--------------------------------")
     print("度大于1的节点 | 有路由表的节点  组成的网络")
-    net_analyzer(G2)
+    #net_analyzer(G2)
     print("--------------------------------")
     print("(度大于1的节点 | 有路由表的节点) & 活跃节点  组成的网络")
-    #pltnet(G3)
     net.net_analyzer(G3)
+    pltnet(G3)
     #getjson.createjson('init_data',G3,id2ip)
     print("--------------------------------")
     for i in route_node:
         sql="SELECT DISTINCT nodeid2 from ethereum_neighbours where nodeid1='%s'" % (i[0])
         nodes =db.execute(sql)
+        '''
+        if len(nodes)<=17*16:
+            num.append(len(nodes))
+        '''
         num.append(len(nodes))
         bucket = set()
         for node in nodes:
@@ -120,7 +187,7 @@ if __name__ == '__main__':
         #print(i[0])
         #print(len(nodes))
     print("平均路由表大小: "+(len(conns) / len(route_node)).__str__())
-    plt.hist(num, bins=10)
+    plt.hist(num, bins=20)
     plt.xlabel("connections")
     plt.ylabel("nodes")
     plt.title("nodes in routing table distribution")

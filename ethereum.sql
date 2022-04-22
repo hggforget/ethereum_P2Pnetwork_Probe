@@ -46,9 +46,11 @@ CREATE TABLE `ethereum_neighbours`  (
   `nodeid1` char(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
   `nodeid2` char(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
   `update_time` datetime(0) NULL DEFAULT CURRENT_TIMESTAMP,
+  `intTIME` int(10) UNSIGNED NULL DEFAULT 0,
+  `RECV_NUM` int(10) UNSIGNED NULL DEFAULT 0,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `r`(`nodeid1`, `nodeid2`,`update_time`) USING BTREE,
-  INDEX `date_time`(`nodeid1`, `update_time`) USING BTREE
+  INDEX `date_time`(`nodeid1`, `update_time`) USING BTREE,
+  UNIQUE INDEX `r`(`nodeid1`, `nodeid2`,`RECV_NUM`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 998318 CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Dynamic;
 
 

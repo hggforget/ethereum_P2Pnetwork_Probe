@@ -14,7 +14,7 @@ class Db(object):
                         return 1
 
             except Exception as e:
-                print(e)
+                #print(e)
                 await asyncio.sleep(1)
                 if ignoreerror:
                     return 1
