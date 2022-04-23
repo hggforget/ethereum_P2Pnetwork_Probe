@@ -350,7 +350,7 @@ async def inibootstrapnode(redis):
 
 async def find_node_to_ping(redis):
     nowtime=int(time.time())
-    sql = f"select id,nodeid,ip,port from ethereum where pingtime<'%d'" %(CYCLE_TIME+BEGIN_TIME)
+    sql = f"select id,nodeid,ip,port from ethereum where pingtime<'%d'" %(BEGIN_TIME+CYCLE_TIME)
     result = await redis.execute(sql, 1)
     '''
         tmpid = [str(row[0]) for row in result]
@@ -382,7 +382,7 @@ async def main(db):
                 await asyncio.sleep(120)
 from db import Db
 async def getredis():
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p6', 'databaseip': 'localhost',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p7', 'databaseip': 'localhost',
                 'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget', 'condition': '',
                 'conditionarr': []}
     db=await Db(dbconfig)
@@ -400,7 +400,7 @@ async def send(ipport, cmd_id, payload) -> bytes:
 if __name__=='__main__':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0',30303))
+    sock.bind(('0.0.0.0',30305))
     loop = asyncio.get_event_loop()
     redis=loop.run_until_complete(getredis())
     loop.add_reader(sock, _onrecv,sock,redis)

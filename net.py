@@ -37,8 +37,10 @@ def semi_local_centrality(G):
         for n_i in node_nei:
             t = t + Q[n_i]
         CL[node] = t
+    '''
     for node in G.nodes:
         print(node, 'N-value:', N[node], 'Q-value:', Q[node], 'CL-value:', CL[node])
+    '''
     return CL
 def pltnet(G):
     nx.draw(G,pos = nx.random_layout(G),node_color = 'b',edge_color = 'r',with_labels = True,font_size =0,node_size =20)
@@ -58,7 +60,7 @@ def net_analyzer(G):
     degrees=list()
     for i in Degrees:
         sum+=i[1]
-        if(i[1]>5):
+        if(i[1]>3):
             degrees.append(i[1])
     print("平均度 "+(sum/len(nodes)).__str__())
     nx.degree_centrality(G)
@@ -68,9 +70,8 @@ def net_analyzer(G):
     print("平均聚集系数: "+nx.average_clustering(G).__str__())
    # print("average_neighbor_degree: "+nx.average_neighbor_degree(G).__str__())
     print("网络直径: " + nx.diameter(G).__str__())
-    print("度数大于5的节点数: "+len(degrees).__str__())
-    CL=semi_local_centrality(G)
-    plt.hist(degrees, bins=20)
+    print("度数大于3的节点数: "+len(degrees).__str__())
+    plt.hist(degrees, bins=15)
     plt.xlabel("degrees")
     plt.ylabel("nodes")
     plt.title("degrees distribution")
