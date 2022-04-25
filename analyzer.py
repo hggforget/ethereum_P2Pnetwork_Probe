@@ -2,6 +2,9 @@
 
 # 按 Shift+F10 执行或将其替换为您的代码。
 # 按 双击 Shift 在所有地方搜索类、文件、工具窗口、操作和设置。
+import random
+
+import net
 from processor_db import *
 from net import *
 import math
@@ -10,9 +13,13 @@ import getjson
 import aiomysql
 import asyncio
 # 按间距中的绿色按钮以运行脚本。
-CMD_MY=1
+CMD_MY1=1
 CMD_DEGREE=2
 CMD_BETWEENNESS=3
+CMD_MY2=4
+CMD_MY3=5
+CMD_RAND=6
+CMD_MY4=7
 CYCLE_TIME=60*60   #规定每个快照的周期时间 即这个快照是 60*60==3600秒=60分钟 这个时间段的探测情况
 def minmax_scale(data):
     maxn=max(data.values())
@@ -25,17 +32,30 @@ def sigmoid(data):
         data.update({i:1/(1+math.exp(-data.get(i)))})
     return data
 def _get_handler(cmd):
-    if cmd == CMD_MY:
-        return my_Importance
-    elif cmd == CMD_DEGREE:
-        return  degree_Importance
+    if cmd == CMD_MY1:
+        return my1_Importance
+    elif cmd == CMD_MY2:
+        return  my2_Importance
+    elif cmd == CMD_MY3:
+        return  my3_Importance
     elif cmd == CMD_DEGREE:
         return  degree_Importance
     elif cmd == CMD_BETWEENNESS:
         return betweenness_Importance
+    elif cmd == CMD_RAND:
+        return random_Importance
+    elif cmd == CMD_MY4:
+        return my4_Importance
+def random_Importance(G,db):
+    random_importance = dict()
+    for node in G.nodes:
+        random_importance.update({node:random.randint(0,1)})
+    L = list(random_importance.items())
+    L.sort(key=lambda x: x[1], reverse=True)
+    return L
 def betweenness_Importance(G,db):
-    degree_importance = nx.betweenness_centrality(G)
-    L = list(degree_importance.items())
+    betweenness_importance = nx.betweenness_centrality(G)
+    L = list(betweenness_importance.items())
     L.sort(key=lambda x: x[1], reverse=True)
     return L
 def degree_Importance(G,db):
@@ -43,26 +63,79 @@ def degree_Importance(G,db):
     L = list(degree_importance.items())
     L.sort(key=lambda x: x[1], reverse=True)
     return L
-def my_Importance(G,db):
-    CL = semi_local_centrality(G)
+def my1_Importance(G,db):
+   # CL = semi_local_centrality(G)
+    NUM = db.execute("SELECT MAX(RECV_NUM) FROM ethereum_neighbours")
+    NUM = NUM[0][0]
+    Activity = getchange(NUM, G.nodes, db)
+    maxn, minn, Activity = minmax_scale(Activity)
+    Activity1 = Activity
+    importance = dict()
+    for i in G.nodes:
+        importance.update({i: Activity1.get(i) })
+    L = list(importance.items())
+    L.sort(key=lambda x: x[1], reverse=True)
+    return L
+def my2_Importance(G,db):
+   # CL = semi_local_centrality(G)
     NUM = db.execute("SELECT MAX(RECV_NUM) FROM ethereum_neighbours")
     NUM = NUM[0][0]
     Activity = getchange(NUM, G.nodes, db)
     maxn, minn, Activity = minmax_scale(Activity)
     Activity1 = sigmoid(Activity)
+    cluster=dict()
+    for i in G.nodes:
+        cluster.update({i:math.exp(-nx.clustering(G,i))})
     importance = dict()
     for i in G.nodes:
-        importance.update({i: Activity1.get(i) * CL.get(i)})
+        value=0
+        for nei in nx.neighbors(G,i):
+            value+=nx.clustering(G,nei)
+        importance.update({i: Activity1.get(i)  * value})
     L = list(importance.items())
     L.sort(key=lambda x: x[1], reverse=True)
     return L
-def gen_importance(G,db,precent,method):
+def my3_Importance(G,db):
+    CL = semi_local_centrality(G)
+    NUM = db.execute("SELECT MAX(RECV_NUM) FROM ethereum_neighbours")
+    NUM = NUM[0][0]
+    Activity = getchange(NUM, G.nodes, db)
+    maxn, minn, Activity = minmax_scale(Activity)
+    Activity1 = Activity
+    cluster=dict()
+    for i in G.nodes:
+        cluster.update({i:math.exp(-nx.clustering(G,i))})
+    importance = dict()
+    for i in G.nodes:
+        value=0
+        for nei in nx.neighbors(G,i):
+            value+=nx.clustering(G,nei)
+        importance.update({i: Activity1.get(i)*value* cluster.get(i)})
+    L = list(importance.items())
+    L.sort(key=lambda x: x[1], reverse=True)
+    return L
+def my4_Importance(G,db):
+    NUM = db.execute("SELECT MAX(RECV_NUM) FROM ethereum_neighbours")
+    NUM = NUM[0][0]
+    cluster=dict()
+    for i in G.nodes:
+        cluster.update({i:math.exp(-nx.clustering(G,i))})
+    importance = dict()
+    for i in G.nodes:
+        value=0
+        for nei in nx.neighbors(G,i):
+            value+=nx.clustering(G,nei)
+        importance.update({i:value* cluster.get(i)})
+    L = list(importance.items())
+    L.sort(key=lambda x: x[1], reverse=True)
+    return L
+def gen_importance(G,db,percent,method):
     handler=_get_handler(method)
     L=handler(G,db)
     G_tmp = G.copy()
-    for i in range(int(len(G.nodes)*precent)):
+    for i in range(int(len(G.nodes)*percent)):
         G_tmp.remove_node(L[i][0])
-    net_analyzer(G_tmp)
+    #net_analyzer(G_tmp)
     return G_tmp
 def rev_scale(maxn,minn,data):
     for i in data:
@@ -119,11 +192,18 @@ def getchange(NUM,nodeSet,db):
             '''
             prelist.update({nodeid1: setnode})
     for node in nodeSet:
-        change_list.update({node:sum(change_list.get(node))})
+        change_list.update({node:sum(change_list.get(node))/NUM})
         #print(change_list.get(node),node)
-
     return change_list
-
+def mapID2region(G,db):
+    id2region=dict()
+    Num=0
+    for node in G.nodes:
+        ips = db.execute("SELECT ip FROM ethereum WHERE nodeid='%s'" % (node))
+        id2region.update({node:getjson.ask4region(ips[0][0])})
+        Num+=1
+        print(Num,id2region.get(node))
+    return id2region
 def getdata3(db):
     '''
             获取 id 到 ip 与  ip到 id 的映射情况
@@ -132,11 +212,9 @@ def getdata3(db):
                 ip2ids ip->（is的集合）  是一个多射
     '''
     total=db.execute("SELECT DISTINCT nodeid,ip FROM ethereum")
-    id2ip=dict()
     ips=dict()
     ids=dict()
     for i in total:
-        id2ip.update({i[0]:i[1]})
         if ips.get(i[0]):
             tmp=ips.get(i[0])
             tmp.add(i[1])
@@ -163,13 +241,13 @@ def getdata3(db):
                 ip2ids.append(len(ids.get(i)))
         except:
             print(i)
-    return id2ips,ip2ids,id2ip
+    return id2ips,ip2ids
 if __name__ == '__main__':
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p7', 'databaseip': 'localhost',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p9', 'databaseip': 'localhost',
                 'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget'}
     db=Db(dbconfig)
     db.connect()
-    id2ips,ip2ids,id2ip=getdata3(db)
+    id2ips,ip2ids=getdata3(db)
     total = db.execute("SELECT DISTINCT nodeid FROM ethereum")
     print("一个nodeid有多个ip")
     print(len(id2ips).__str__() + " : " +len(total).__str__())
@@ -189,10 +267,12 @@ if __name__ == '__main__':
     print("在路由表中出现的节点 的数量(去重): "+len(dis).__str__())
     all = db.execute("SELECT  nodeid2  FROM ethereum_neighbours WHERE RECV_NUM='%d'" % (1))
     print("在路由表中出现的所有节点 的数量（不包含收到PING时增加的节点）: "+len(all).__str__())
+
     '''
         获得重复的节点 有重复代表 度>1
         对于度==1的点 它是不能路由的 因此我们认为它对网络没贡献
     '''
+
     new_dis = set()
     diss=set()
     new_all=set()
@@ -213,20 +293,40 @@ if __name__ == '__main__':
     G3=buildnet((new_all|route)&nodes,conns)
     print("--------------------------------")
     print("活跃节点（有pong回应的节点）组成的网络")
-    #net_analyzer(G)
+   # net_analyzer(G)
     print("--------------------------------")
     print("可路由节点 | 有路由表的节点  组成的网络")
-    #net_analyzer(G2)
+   # net_analyzer(G2)
     print("--------------------------------")
     print("(可路由节点 | 有路由表的节点) & 活跃节点  组成的网络")
     net_analyzer(G3)
-    #getjson.createjson('init_data_row',G3,id2ip)
-    #getjson.createjson('init_data_MY_5%', gen_importance(G3,db,0.05,CMD_MY), id2ip)
-    print("--------------------------------")
-    #getjson.createjson('init_data_DEGREE_5%', gen_importance(G3, db, 0.05, CMD_DEGREE), id2ip)
-    print("--------------------------------")
-    #getjson.createjson('init_data_BETWEENNESS_5%', gen_importance(G3,db,0.05,CMD_BETWEENNESS), id2ip)
-    print("--------------------------------")
+
+    #id2region=mapID2region(G3,db)
+
+    '''
+    getjson.createjson('init_data_MY1_1%', gen_importance(G3, db, 0.01, CMD_MY1), id2region)
+    getjson.createjson('init_data_MY1_2%', gen_importance(G3, db, 0.02, CMD_MY1), id2region)
+    getjson.createjson('init_data_MY1_3%', gen_importance(G3, db, 0.03, CMD_MY1), id2region)
+    getjson.createjson('init_data_MY1_5%', gen_importance(G3, db, 0.05, CMD_MY1), id2region)
+    getjson.createjson('init_data_MY2_1%', gen_importance(G3, db, 0.01, CMD_MY2), id2region)
+    getjson.createjson('init_data_MY2_2%', gen_importance(G3, db, 0.02, CMD_MY2), id2region)
+    getjson.createjson('init_data_MY2_3%', gen_importance(G3, db, 0.03, CMD_MY2), id2region)
+    getjson.createjson('init_data_MY2_5%', gen_importance(G3, db, 0.05, CMD_MY2), id2region)
+    getjson.createjson('init_data_MY3_1%', gen_importance(G3, db, 0.01, CMD_MY3), id2region)
+    getjson.createjson('init_data_MY3_2%', gen_importance(G3, db, 0.02, CMD_MY3), id2region)
+    getjson.createjson('init_data_MY3_3%', gen_importance(G3, db, 0.03, CMD_MY3), id2region)
+    getjson.createjson('init_data_MY3_5%', gen_importance(G3, db, 0.05, CMD_MY3), id2region)
+    getjson.createjson('init_data_DEGREE_1%', gen_importance(G3, db, 0.01, CMD_DEGREE), id2region)
+    getjson.createjson('init_data_DEGREE_2%', gen_importance(G3, db, 0.02, CMD_DEGREE), id2region)
+    getjson.createjson('init_data_DEGREE_3%', gen_importance(G3, db, 0.03, CMD_DEGREE), id2region)
+    getjson.createjson('init_data_DEGREE_5%', gen_importance(G3, db, 0.05, CMD_DEGREE), id2region)
+    getjson.createjson('init_data_BETWEENNESS_1%', gen_importance(G3, db, 0.01, CMD_BETWEENNESS), id2region)
+    getjson.createjson('init_data_BETWEENNESS_2%', gen_importance(G3, db, 0.02, CMD_BETWEENNESS), id2region)
+    getjson.createjson('init_data_BETWEENNESS_3%', gen_importance(G3, db, 0.03, CMD_BETWEENNESS), id2region)
+    getjson.createjson('init_data_BETWEENNESS_5%', gen_importance(G3, db, 0.05, CMD_BETWEENNESS), id2region)
+
+    '''
+
     for i in route_node:
         sql="SELECT DISTINCT nodeid2 from ethereum_neighbours where nodeid1='%s' AND RECV_NUM='%d'" % (i[0],1)
         nodes =db.execute(sql)

@@ -32,8 +32,9 @@ CMD_ENR_REQUEST = 5
 CMD_ENR_RESPONSE = 6
 MAC_SIZE = 256 // 8
 SIG_SIZE = 520 // 8  # 65
+MODE=True
 HEAD_SIZE = MAC_SIZE + SIG_SIZE
-CYCLE_TIME=int(60*30)
+CYCLE_TIME=int(60*60)
 BEGIN_TIME=int(time.time())
 sem = asyncio.Semaphore(100) #一次最多同时连接查询100个节点
 
@@ -56,7 +57,7 @@ def get_external_ipaddress() -> ipaddress.IPv4Address:
     获得包的过期时间
 '''
 def _get_msg_expiration() -> bytes:
-    return rlp.sedes.big_endian_int.serialize(int(time.time() + 60))
+    return rlp.sedes.big_endian_int.serialize(int(time.time() + 300))
 
 '''
     载入公钥 若不存在key文件 则自动创建
@@ -79,6 +80,7 @@ eth_k=init()
 '''
     加密
 '''
+
 def keccak256(s):
     k = sha3.keccak_256()
     k.update(s)
@@ -168,41 +170,16 @@ def _unpack_v4(message: bytes):
     payload = tuple(rlp.decode(message[HEAD_SIZE + 1:], strict=False))
     return remote_pubkey, cmd_id, payload, message_hash
 async def sendlookuptonode(remote_publickey,remote_address):
-    '''
-        此处为感知路由表的算法
-    '''
-    count=(1<<17)-1
-    now=1
-    expiration = _get_msg_expiration()
-    nowid=keccak256(remote_publickey.to_bytes())
-    await send(remote_address, CMD_FIND_NODE, (remote_publickey.to_bytes(), expiration))
-    while now != count:
-        index = 0
-        target_key = int_to_big_endian(
-            secrets.randbits(512)
-        ).rjust(512 // 8, b'\x00')
-        target_id = keccak256(target_key)
-        '''
-                随机生成target_id
-        '''
-        dis=(big_endian_to_int(target_id)^big_endian_to_int(nowid))
-        '''
-                计算target_id与要感知路由表的节点的id 之间的异或距离
-        '''
-        for i in range(1, 17):
-                if (1 << (239+i)) & dis:
-                    index = i
-        '''
-                推测该target_id应该落入哪个桶
-        '''
-        if not (1 << index) & now:
-            '''
-                若该target_id所在的桶尚未请求过，则发送FIND_NODE报文
-                并记录已被请求的桶
-            '''
-            now = now | (1 << index)
-            expiration = _get_msg_expiration()
-            await send(remote_address, CMD_FIND_NODE, (target_key, expiration))
+    global Kbucket
+    targetKeys = Kbucket.get(remote_publickey)
+    if not targetKeys:
+        targetKeys=cal_Kbucket(remote_publickey)
+    tasks=[]
+    for value in targetKeys:
+        expiration=_get_msg_expiration()
+        tasks.append(send(remote_address, CMD_FIND_NODE, (value, expiration)))
+    await asyncio.wait(tasks)
+    print(remote_publickey)
 async def addtodb_active(db,arr):
     '''
         将活跃节点加入数据库
@@ -217,8 +194,10 @@ async def recv_pong_v4(remote_publickey,remote_address, payload, _: Hash32,db) -
     '''
         若己方收到PONG报文：说明我们PING对方的时候，对方有回应，则该节点为活跃节点，加入数据库
     '''
-    if nowtime<=BEGIN_TIME+CYCLE_TIME:
+    if nowtime<=BEGIN_TIME+CYCLE_TIME and MODE:
         await addtodb_active(db, [[keccak256(remote_publickey.to_bytes()).hex(), remote_address[0], remote_address[1], remote_publickey.to_bytes().hex(),nowtime]])
+        sql = f"update ethereum set pingtime='%d' where publickey= '%s'" %(nowtime,remote_publickey.to_bytes().hex())
+        await redis.execute(sql)
     await sendlookuptonode(remote_publickey,remote_address)
 
 
@@ -253,7 +232,7 @@ async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32
         except Exception as e:
             print(e)
             continue
-    if arr and int(time.time())<=BEGIN_TIME+CYCLE_TIME:
+    if arr and int(time.time())<=BEGIN_TIME+CYCLE_TIME and MODE:
         await addtodb(db,arr)
     if update_arr:
 
@@ -263,13 +242,12 @@ async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32
 
 async def recv_ping_v4(
         remotepk,remote_address, payload, message_hash: Hash32,db) -> None:
-
     targetnodeid = keccak256(remotepk.to_bytes())
     if targetnodeid.hex()  == myid:
         return
-    if int(time.time())<=(BEGIN_TIME+CYCLE_TIME):
+    if int(time.time())<=(BEGIN_TIME+CYCLE_TIME) and MODE:
         print(int(time.time()).__str__()+"   "+(BEGIN_TIME+CYCLE_TIME).__str__())
-        print('ping insert',[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()])
+        print('ping insert',[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex(),0])
         await addtodb(db,[[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()]])
 
     if len(payload) < 4:
@@ -327,7 +305,7 @@ def _onrecv(sock,db):
 async def send_ping_v4(hostname,port):
 
     version = rlp.sedes.big_endian_int.serialize(4)
-    expiration = rlp.sedes.big_endian_int.serialize(int(time.time() + 180))
+    expiration = rlp.sedes.big_endian_int.serialize(int(time.time() + 300))
     local_enr_seq = get_local_enr_seq()
     payload = (version, Address('127.0.0.1',30303,30303).to_endpoint(), Address(hostname,port,port).to_endpoint(),
                expiration, int_to_big_endian(local_enr_seq))
@@ -348,15 +326,34 @@ async def inibootstrapnode(redis):
         sql="insert ignore into ethereum (nodeid,publickey,ip,port,pingtime) values (%s,%s,%s,%s,%s)"
         await redis.executemany(sql,arr)
 
+async def find_node_to_lookup(redis):
+    sql = f"select id,nodeid,ip,port,publickey from ethereum_active_nodes"
+    result = await redis.execute(sql, 1)
+    print(len(result))
+    tasks=[]
+    for row in result:
+        nodeid = row[1]
+        ip= row[2]
+        port=row[3]
+        try:
+            pk=PublicKey(int_to_big_endian(int(row[4],16)).rjust(512 // 8, b'\x00'))
+        except Exception as e:
+            print(e,row[4])
+        if myid != nodeid:
+            tasks.append(sendlookuptonode(pk,(ip, int(port))))
+    if tasks:
+        await asyncio.wait(tasks)
+
 async def find_node_to_ping(redis):
     nowtime=int(time.time())
-    sql = f"select id,nodeid,ip,port from ethereum where pingtime<'%d'" %(BEGIN_TIME+CYCLE_TIME)
+    sql = f"select id,nodeid,ip,port,publickey from ethereum where pingtime='%d'" %(0)
     result = await redis.execute(sql, 1)
     '''
         tmpid = [str(row[0]) for row in result]
-    if tmpid:
+        if tmpid:
         sql = f"update ethereum set pingtime={nowtime + 300} where id in ({','.join(tmpid)})"
         await redis.execute(sql)
+    
     '''
     tasks = []
     for row in result:
@@ -367,22 +364,72 @@ async def find_node_to_ping(redis):
             tasks.append(send_ping_v4(ip, int(port)))
     if tasks:
         await asyncio.wait(tasks)
+Kbucket=dict()
+def cal_Kbucket(remote_publickey):
+    global Kbucket
+    '''
+            此处为感知路由表的算法
+    '''
+    count = (1 << 17) - 1
+    now = 1
+    nowid = keccak256(remote_publickey.to_bytes())
+    value = set()
+    value.add(remote_publickey.to_bytes())
+    while now != count:
+        index = 0
+        target_key = int_to_big_endian(
+            secrets.randbits(512)
+        ).rjust(512 // 8, b'\x00')
+        target_id = keccak256(target_key)
+        '''
+                随机生成target_id
+        '''
+        dis = (big_endian_to_int(target_id) ^ big_endian_to_int(nowid))
+        '''
+                计算target_id与要感知路由表的节点的id 之间的异或距离
+        '''
+        for i in range(1, 17):
+            if (1 << (239 + i)) & dis:
+                index = i
+        '''
+                推测该target_id应该落入哪个桶
+        '''
+        if not (1 << index) & now:
+            '''
+                若该target_id所在的桶尚未请求过，则发送FIND_NODE报文
+                并记录已被请求的桶
+            '''
+            now = now | (1 << index)
+            value.add(target_key)
+    Kbucket.update({remote_publickey:value})
+    return value
+async def inical(redis):
+    global Kbucket
+    sql = f"select DISTINCT nodeid,publickey from ethereum_active_nodes"
+    result = await redis.execute(sql, 1)
+    for row in result:
+        remote_publickey=PublicKey(int_to_big_endian(int(row[1],16)).rjust(512 // 8, b'\x00'))
+        Kbucket.update({remote_publickey:cal_Kbucket(remote_publickey)})
 
 async def main(db):
     global RECV_NUM
-    await inibootstrapnode(redis)
+    if MODE:
+        await inibootstrapnode(redis)
+    else:
+        await inical(redis)
     while 1:
-        if int(time.time())<=BEGIN_TIME+CYCLE_TIME:
+        if int(time.time())<=BEGIN_TIME+CYCLE_TIME and MODE:
             await find_node_to_ping(redis)
-            await asyncio.sleep(120)
+            await find_node_to_lookup(redis)
+            await asyncio.sleep(180)
         else:
             RECV_NUM+=1
-            for i in range(15):
-                await find_node_to_ping(redis)
-                await asyncio.sleep(120)
+            for i in range(20):
+                await find_node_to_lookup(redis)
+                await asyncio.sleep(180)
 from db import Db
 async def getredis():
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p7', 'databaseip': 'localhost',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p10', 'databaseip': 'localhost',
                 'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget', 'condition': '',
                 'conditionarr': []}
     db=await Db(dbconfig)
