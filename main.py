@@ -32,7 +32,7 @@ CMD_ENR_REQUEST = 5
 CMD_ENR_RESPONSE = 6
 MAC_SIZE = 256 // 8
 SIG_SIZE = 520 // 8  # 65
-MODE=True
+MODE=False
 HEAD_SIZE = MAC_SIZE + SIG_SIZE
 CYCLE_TIME=int(60*60)
 BEGIN_TIME=int(time.time())
@@ -369,6 +369,7 @@ def cal_Kbucket(remote_publickey):
     global Kbucket
     '''
             此处为感知路由表的算法
+      count:用位来表示某个K桶是否已获得，第i位为1代表第i个K桶已获得，第i位为0代表第i个K桶未获得
     '''
     count = (1 << 17) - 1
     now = 1
@@ -377,13 +378,8 @@ def cal_Kbucket(remote_publickey):
     value.add(remote_publickey.to_bytes())
     while now != count:
         index = 0
-        target_key = int_to_big_endian(
-            secrets.randbits(512)
-        ).rjust(512 // 8, b'\x00')
-        target_id = keccak256(target_key)
-        '''
-                随机生成target_id
-        '''
+        target_key = int_to_big_endian(secrets.randbits(512)).rjust(512 // 8, b'\x00')
+        target_id = keccak256(target_key) # 随机生成target_id
         dis = (big_endian_to_int(target_id) ^ big_endian_to_int(nowid))
         '''
                 计算target_id与要感知路由表的节点的id 之间的异或距离

@@ -3,16 +3,18 @@
 # 按 Shift+F10 执行或将其替换为您的代码。
 # 按 双击 Shift 在所有地方搜索类、文件、工具窗口、操作和设置。
 import random
-
-import net
-from processor_db import *
-from net import *
 import math
+
+import numpy
+import pymysql
 import networkx as nx
-import getjson
 import aiomysql
 import asyncio
+import networkx as nx
+import matplotlib.pyplot as plt
 # 按间距中的绿色按钮以运行脚本。
+import sha3
+
 CMD_MY1=1
 CMD_DEGREE=2
 CMD_BETWEENNESS=3
@@ -21,6 +23,99 @@ CMD_MY3=5
 CMD_RAND=6
 CMD_MY4=7
 CYCLE_TIME=60*60   #规定每个快照的周期时间 即这个快照是 60*60==3600秒=60分钟 这个时间段的探测情况
+def buildnet(Nodes,Connections):
+    G = nx.Graph()  # 创建空的网络图
+    nodes = dict()
+    Num = 0
+    for i in Nodes:
+        Num += 1
+        nodes.update({i: Num})
+        G.add_node(i)
+    for i in Connections:
+        if nodes.get(i[0]) and nodes.get(i[1]):
+            G.add_edge(i[0], i[1])
+    return G
+def semi_local_centrality(G):
+    N = {}
+    Q = {}
+    CL = {}
+    for node in G.nodes:
+        node_nei = list(G.neighbors(node))
+        for n_i in node_nei:
+            node_nei = node_nei + list(G.neighbors(n_i))
+        node_nei = list(set(node_nei))
+        N[node] = len(node_nei) - 1
+
+    for node in G.nodes:
+        node_nei = list(G.neighbors(node))
+        t = 0
+        for n_i in node_nei:
+            t = t + N[n_i]
+        Q[node] = t
+
+    for node in G.nodes:
+        node_nei = list(G.neighbors(node))
+        t = 0
+        for n_i in node_nei:
+            t = t + Q[n_i]
+        CL[node] = t
+    '''
+    for node in G.nodes:
+        print(node, 'N-value:', N[node], 'Q-value:', Q[node], 'CL-value:', CL[node])
+    '''
+    return CL
+def distinct(G):
+    G.remove_nodes_from(list(nx.isolates(G)))
+    return G
+def net_analyzer(G,isdistinct=1):
+    Degrees=nx.degree(G)
+    nodes=nx.nodes(G)
+    print("节点总数: "+len(nx.nodes(G)).__str__())
+    if isdistinct:
+        G.remove_nodes_from(list(nx.isolates(G)))
+        print("节点总数（去除孤点）: " + len(nodes).__str__())
+        C = sorted(nx.connected_components(G), key=len, reverse=True)
+        len_list=list()
+        for i in C:
+            len_list.append(len(i))
+            if len(len_list)!=1:
+                G.remove_nodes_from(i)
+    sum=0
+    degrees=list()
+    for i in Degrees:
+        sum+=i[1]
+        if(i[1]>4):
+            degrees.append(i[1])
+    print("平均度 "+(sum/len(nodes)).__str__())
+    nx.degree_centrality(G)
+    print("平均最短路径长度: "+nx.average_shortest_path_length(G).__str__())
+    #print("degree_centrality: "+nx.degree_centrality(G).__str__())
+    print("平均聚集系数: "+nx.average_clustering(G).__str__())
+   # print("average_neighbor_degree: "+nx.average_neighbor_degree(G).__str__())
+    print("网络直径: " + nx.diameter(G).__str__())
+    print("度数大于4的节点数: "+len(degrees).__str__())
+   # print(' '.join('%s' %each for each in degrees))
+
+def keccak256(s):
+    k = sha3.keccak_256()
+    k.update(s)
+    return k.digest()
+def big_endian_to_int(value: bytes) -> int:
+    return int.from_bytes(value, "big")
+class Db:
+    def __init__(self,dbconfig):
+        self.dbconfig=dbconfig
+    def connect(self):
+        self.conn=pymysql.connect(host=self.dbconfig['databaseip'], port=self.dbconfig['databaseport'],
+                                user=self.dbconfig['databaseuser'], password=self.dbconfig['databasepassword'], db=self.dbconfig['database'])
+    def execute(self,sql,hasret=1):
+        cursor=self.conn.cursor()
+        cursor.execute(sql)
+        if hasret:
+            return cursor.fetchall()
+    def close(self):
+        self.conn.close()
+
 def minmax_scale(data):
     maxn=max(data.values())
     minn=min(data.values())
@@ -195,15 +290,7 @@ def getchange(NUM,nodeSet,db):
         change_list.update({node:sum(change_list.get(node))/NUM})
         #print(change_list.get(node),node)
     return change_list
-def mapID2region(G,db):
-    id2region=dict()
-    Num=0
-    for node in G.nodes:
-        ips = db.execute("SELECT ip FROM ethereum WHERE nodeid='%s'" % (node))
-        id2region.update({node:getjson.ask4region(ips[0][0])})
-        Num+=1
-        print(Num,id2region.get(node))
-    return id2region
+
 def getdata3(db):
     '''
             获取 id 到 ip 与  ip到 id 的映射情况
@@ -252,24 +339,25 @@ if __name__ == '__main__':
     db=Db(dbconfig)
     db.connect()
     lenip,lenid,id2ips,ip2ids=getdata3(db)
-    print("一个nodeid有多个ip")
-    print(lenip.__str__() + " : " +db.execute("SELECT COUNT(DISTINCT nodeid)  FROM ethereum")[0][0].__str__())
-    print("一个ip有多个nodeid")
-    print(lenid.__str__() + " : " +db.execute("SELECT COUNT(DISTINCT ip) FROM ethereum")[0][0].__str__())
+    print("探测到的所有节点:"+db.execute("SELECT COUNT(DISTINCT nodeid)  FROM ethereum")[0][0].__str__())
+    print("IP地址变化的节点:"+lenip.__str__())
+    print("探测到的IP地址:"+db.execute("SELECT COUNT(DISTINCT ip) FROM ethereum")[0][0].__str__())
+    print("运行多个节点的IP地址:"+lenid.__str__() )
     active = db.execute("SELECT DISTINCT nodeid FROM ethereum_active_nodes")
+    print("活跃节点总数:"+len(active).__str__())
     nodes=set()
     for i in active:
         nodes.add(i[0])
-    print("探测到的所有节点（从路由表中探测到的节点+被PING时增加的节点）: "+db.execute("SELECT COUNT(DISTINCT nodeid) FROM ethereum").__str__())
+    #print("探测到的所有节点（从路由表中探测到的节点+被PING时增加的节点）: "+db.execute("SELECT COUNT(DISTINCT nodeid) FROM ethereum")[0][0].__str__())
     route_node = db.execute("SELECT DISTINCT nodeid1  FROM ethereum_neighbours")
-    print("有路由表的节点: "+len(route_node).__str__())
+    #print("有路由表的节点: "+len(route_node).__str__())
     route=set()
     for i in route_node:
         route.add(i[0])
     dis = db.execute("SELECT DISTINCT nodeid2  FROM ethereum_neighbours WHERE RECV_NUM='%d'" % (1))
-    print("在路由表中出现的节点 的数量(去重): "+len(dis).__str__())
+   # print("在路由表中出现的节点 的数量(去重): "+len(dis).__str__())
     all = db.execute("SELECT  nodeid2  FROM ethereum_neighbours WHERE RECV_NUM='%d'" % (1))
-    print("在路由表中出现的所有节点 的数量（不包含收到PING时增加的节点）: "+len(all).__str__())
+   # print("在路由表中出现的所有节点 的数量（不包含收到PING时增加的节点）: "+len(all).__str__())
 
     '''
         获得重复的节点 有重复代表 度>1
@@ -288,13 +376,14 @@ if __name__ == '__main__':
             new_dis.remove(i[0])
         else:
             new_all.add(i[0])
-    print(len(new_all).__str__() + "  可路由节点")
+    print("可路由节点:"+len(new_all).__str__())
     conns = db.execute("SELECT DISTINCT nodeid1,nodeid2  FROM ethereum_neighbours WHERE RECV_NUM='%d'" % (1))
     num=list()
     G=buildnet(nodes,conns)
     G2=buildnet((new_all|route),conns)
     G3=buildnet((new_all|route)&nodes,conns)
-    print("--------------------------------")
+    '''
+     print("--------------------------------")
     print("活跃节点（有pong回应的节点）组成的网络")
     net_analyzer(G)
     print("--------------------------------")
@@ -302,6 +391,8 @@ if __name__ == '__main__':
     net_analyzer(G2)
     print("--------------------------------")
     print("(可路由节点 | 有路由表的节点) & 活跃节点  组成的网络")
+    
+    '''
     net_analyzer(G3)
     #id2region=mapID2region(G3,db)
 
@@ -346,10 +437,20 @@ if __name__ == '__main__':
         #print(bucket)
         #print(i[0])
         #print(len(nodes))
+    print("平均路由表大小: " + round(len(conns) / len(route_node),3).__str__())
+
     print("平均路由表大小: "+(len(conns) / len(route_node)).__str__())
-    plt.hist(num, bins=15)
+    n, bins,patchs=plt.hist(num, bins=5)
+    for i in range(0,len(n)):
+        print(numpy.int(n[i]),end=" ")
+    print("")
+    for i in range(1,len(bins)):
+        print(numpy.float(bins[i]),end=" ")
+    print("")
     plt.xlabel("connections")
     plt.ylabel("nodes")
     plt.title("nodes in routing table distribution")
     plt.show()
+
+
     db.close()

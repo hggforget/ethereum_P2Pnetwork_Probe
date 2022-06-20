@@ -75,6 +75,7 @@ def net_analyzer(G,isdistinct=1):
    # print("average_neighbor_degree: "+nx.average_neighbor_degree(G).__str__())
     print("网络直径: " + nx.diameter(G).__str__())
     print("度数大于4的节点数: "+len(degrees).__str__())
+   # print(' '.join('%s' %each for each in degrees))
     plt.hist(degrees, bins=15)
     plt.xlabel("degrees")
     plt.ylabel("nodes")
