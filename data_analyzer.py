@@ -4,12 +4,10 @@
 # 按 双击 Shift 在所有地方搜索类、文件、工具窗口、操作和设置。
 import random
 import math
+import time
 
 import numpy
 import pymysql
-import networkx as nx
-import aiomysql
-import asyncio
 import networkx as nx
 import matplotlib.pyplot as plt
 # 按间距中的绿色按钮以运行脚本。
@@ -334,8 +332,8 @@ def getdata3(db):
             print(i)
     return lenip,lenid,id2ips,ip2ids
 if __name__ == '__main__':
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p9', 'databaseip': 'localhost',
-                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget'}
+    dbconfig = {'sourcetable': 'nodefinder_db', 'database': 'nodefinder_db', 'databaseip': 'localhost',
+                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': '123456'}
     db=Db(dbconfig)
     db.connect()
     lenip,lenid,id2ips,ip2ids=getdata3(db)
@@ -437,20 +435,18 @@ if __name__ == '__main__':
         #print(bucket)
         #print(i[0])
         #print(len(nodes))
+    time.sleep(5)
     print("平均路由表大小: " + round(len(conns) / len(route_node),3).__str__())
 
     print("平均路由表大小: "+(len(conns) / len(route_node)).__str__())
     n, bins,patchs=plt.hist(num, bins=5)
     for i in range(0,len(n)):
-        print(numpy.int(n[i]),end=" ")
+        print(numpy.int32(n[i]),end=" ")
     print("")
     for i in range(1,len(bins)):
-        print(numpy.float(bins[i]),end=" ")
+        print(numpy.float64(bins[i]),end=" ")
     print("")
-    plt.xlabel("connections")
-    plt.ylabel("nodes")
-    plt.title("nodes in routing table distribution")
-    plt.show()
+
 
 
     db.close()

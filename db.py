@@ -30,7 +30,7 @@ class Db(object):
                             result = await cur.fetchall()
                         return result
             except Exception as e:
-                print(e)
+                print(e,'sd')
                 await asyncio.sleep(1)
     async def connect(self):
         if 1:

@@ -247,8 +247,8 @@ def getdata3(db):
             print(i)
     return lenip,lenid,id2ips,ip2ids
 if __name__ == '__main__':
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p9', 'databaseip': 'localhost',
-                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget'}
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'nodefinder_db', 'databaseip': 'localhost',
+                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': '123456'}
     db=Db(dbconfig)
     db.connect()
     lenip,lenid,id2ips,ip2ids=getdata3(db)
@@ -303,8 +303,8 @@ if __name__ == '__main__':
     print("--------------------------------")
     print("(可路由节点 | 有路由表的节点) & 活跃节点  组成的网络")
     net_analyzer(G3)
-    #id2region=mapID2region(G3,db)
-
+    id2region=mapID2region(G3,db)
+    getjson.createjson('init_data_row',G3, id2region)
     '''
     getjson.createjson('init_data_MY1_1%', gen_importance(G3, db, 0.01, CMD_MY1), id2region)
     getjson.createjson('init_data_MY1_2%', gen_importance(G3, db, 0.02, CMD_MY1), id2region)

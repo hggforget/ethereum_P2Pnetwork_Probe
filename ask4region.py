@@ -21,8 +21,8 @@ def ask4region(ip):
             flag=0
     return response_obj['data']['country']
 if __name__ == '__main__':
-    dbconfig = {'sourcetable': 'nodefinder_db', 'database': 'nodefinder_db', 'databaseip': 'localhost',
-                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget'}
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'nodefinder_db', 'databaseip': 'localhost',
+                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': '123456'}
     db = Db(dbconfig)
     db.connect()
     ips=db.execute("SELECT DISTINCT ip FROM ethereum")

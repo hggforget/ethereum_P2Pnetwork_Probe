@@ -8,6 +8,9 @@ import math
 import socket
 import os
 import secrets
+
+import pandas as pd
+
 from boostrapnodes import BOOTNODES
 import urllib.parse
 import binascii
@@ -23,7 +26,8 @@ from eth_keys.datatypes import PrivateKey,PublicKey
 from eth_keys import keys
 import ipaddress
 import netifaces
-
+import warnings
+warnings.filterwarnings("ignore")
 CMD_PING=1
 CMD_PONG = 2
 CMD_FIND_NODE = 3
@@ -32,7 +36,7 @@ CMD_ENR_REQUEST = 5
 CMD_ENR_RESPONSE = 6
 MAC_SIZE = 256 // 8
 SIG_SIZE = 520 // 8  # 65
-MODE=False
+MODE=True
 HEAD_SIZE = MAC_SIZE + SIG_SIZE
 CYCLE_TIME=int(60*60)
 BEGIN_TIME=int(time.time())
@@ -41,7 +45,10 @@ sem = asyncio.Semaphore(100) #一次最多同时连接查询100个节点
 '''
     获取外部ip地址  算是一种内网转外网
 '''
-
+def write_log(str):
+    with open('data.txt', 'a+') as f:
+        f.write(str)  # 文件的写操作
+        f.write('\n')
 def get_external_ipaddress() -> ipaddress.IPv4Address:
     for iface in netifaces.interfaces():
         for family, addresses in netifaces.ifaddresses(iface).items():
@@ -70,6 +77,7 @@ def init():
                 eth_k=PrivateKey(f.read())
                 return eth_k
         except Exception as e:
+            write_log('55 '+e.__str__())
             print('55',e)
             pass
     eth_k = generate_eth_key()
@@ -179,7 +187,6 @@ async def sendlookuptonode(remote_publickey,remote_address):
         expiration=_get_msg_expiration()
         tasks.append(send(remote_address, CMD_FIND_NODE, (value, expiration)))
     await asyncio.wait(tasks)
-    print(remote_publickey)
 async def addtodb_active(db,arr):
     '''
         将活跃节点加入数据库
@@ -213,9 +220,11 @@ async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32
 
     # The neighbours payload should have 2 elements: nodes, expiration
     if len(payload) < 2:
+        write_log('neighbors wrong')
         print('neighbors wrong')
         return
-    print("nerighbor!")
+    write_log("nerighbor!")
+    print('nerighbor!')
     nodes, expiration = payload[:2]
     arr=[]
     update_arr=[]
@@ -230,6 +239,7 @@ async def recv_neighbours_v4(remote_publickey,remote_address, payload, _: Hash32
             update_arr.append([nodeid1,node_id,tm,int(time.time()),RECV_NUM])
             arr.append([node_id,str(ip),udp_port,publickey.hex()])
         except Exception as e:
+            write_log(e.__str__())
             print(e)
             continue
     if arr and int(time.time())<=BEGIN_TIME+CYCLE_TIME and MODE:
@@ -246,11 +256,14 @@ async def recv_ping_v4(
     if targetnodeid.hex()  == myid:
         return
     if int(time.time())<=(BEGIN_TIME+CYCLE_TIME) and MODE:
+        write_log(int(time.time()).__str__()+"   "+(BEGIN_TIME+CYCLE_TIME).__str__())
         print(int(time.time()).__str__()+"   "+(BEGIN_TIME+CYCLE_TIME).__str__())
-        print('ping insert',[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex(),0])
+        write_log('ping insert '+[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex(),0].__str__())
+        print('ping insert',[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex(),0].__str__())
         await addtodb(db,[[targetnodeid.hex(),remote_address[0],remote_address[1],remotepk.to_bytes().hex()]])
 
     if len(payload) < 4:
+        write_log('error ping')
         print('error ping')
         return
     elif len(payload) == 4:
@@ -294,6 +307,7 @@ def _onrecv(sock,db):
 
 
     except Exception as e:
+        write_log(e.__str__())
         print(e)
         return
     if cmd_id not in [CMD_PING,CMD_PONG,CMD_NEIGHBOURS]:
@@ -329,7 +343,8 @@ async def inibootstrapnode(redis):
 async def find_node_to_lookup(redis):
     sql = f"select id,nodeid,ip,port,publickey from ethereum_active_nodes"
     result = await redis.execute(sql, 1)
-    print(len(result))
+    write_log(len(result).__str__()+'  len')
+    print(len(result),'len')
     tasks=[]
     for row in result:
         nodeid = row[1]
@@ -338,6 +353,7 @@ async def find_node_to_lookup(redis):
         try:
             pk=PublicKey(int_to_big_endian(int(row[4],16)).rjust(512 // 8, b'\x00'))
         except Exception as e:
+            write_log(e.__str__()+row[4])
             print(e,row[4])
         if myid != nodeid:
             tasks.append(sendlookuptonode(pk,(ip, int(port))))
@@ -417,16 +433,16 @@ async def main(db):
         if int(time.time())<=BEGIN_TIME+CYCLE_TIME and MODE:
             await find_node_to_ping(redis)
             await find_node_to_lookup(redis)
-            await asyncio.sleep(180)
+          #  await asyncio.sleep(180)
         else:
             RECV_NUM+=1
             for i in range(20):
                 await find_node_to_lookup(redis)
-                await asyncio.sleep(180)
+              #  await asyncio.sleep(180)
 from db import Db
 async def getredis():
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'topo_p2p10', 'databaseip': 'localhost',
-                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': 'hggforget', 'condition': '',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'nodefinder_db2', 'databaseip': 'localhost',
+                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': '123456', 'condition': '',
                 'conditionarr': []}
     db=await Db(dbconfig)
 
@@ -438,13 +454,18 @@ async def send(ipport, cmd_id, payload) -> bytes:
         try:
             sock.sendto(message, ipport)
         except Exception as e:
+            write_log(ipport.__str__())
             print(ipport)
     return message
 if __name__=='__main__':
+    with open('data.txt', "a") as f:
+        f.seek(0)
+        f.truncate()   #清空文件
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-    sock.bind(('0.0.0.0',30305))
-    loop = asyncio.get_event_loop()
+    sock.bind(('0.0.0.0',30314))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     redis=loop.run_until_complete(getredis())
     loop.add_reader(sock, _onrecv,sock,redis)
     loop.create_task(main(redis))
