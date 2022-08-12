@@ -84,7 +84,7 @@ def net_analyzer(G,isdistinct=1):
         sum+=i[1]
         if(i[1]>4):
             degrees.append(i[1])
-    print("平均度 "+(sum/len(nodes)).__str__())
+    print("平均度:"+(sum/len(nodes)).__str__())
     nx.degree_centrality(G)
     print("平均最短路径长度: "+nx.average_shortest_path_length(G).__str__())
     #print("degree_centrality: "+nx.degree_centrality(G).__str__())
