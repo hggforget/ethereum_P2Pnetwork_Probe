@@ -357,6 +357,7 @@ async def find_node_to_lookup(redis):
             print(e,row[4])
         if myid != nodeid:
             tasks.append(sendlookuptonode(pk,(ip, int(port))))
+            print("lookup ",pk)
     if tasks:
         await asyncio.wait(tasks)
 
@@ -433,12 +434,12 @@ async def main(db):
         if int(time.time())<=BEGIN_TIME+CYCLE_TIME and MODE:
             await find_node_to_ping(redis)
             await find_node_to_lookup(redis)
-            await asyncio.sleep(180)
+        #    await asyncio.sleep(180)
         else:
             RECV_NUM+=1
             for i in range(20):
                 await find_node_to_lookup(redis)
-                await asyncio.sleep(180)
+          #      await asyncio.sleep(180)
 from db import Db
 async def getredis():
     dbconfig = {'sourcetable': 'ethereum', 'database': 'nodefinder_db2', 'databaseip': 'localhost',
