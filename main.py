@@ -313,8 +313,8 @@ def _onrecv(sock,db):
     if cmd_id not in [CMD_PING,CMD_PONG,CMD_NEIGHBOURS]:
         return
     handler = _get_handler(cmd_id)
-    asyncio.create_task(handler(remote_pubkey,remoteaddr,payload, message_hash,db))
-    #await handler(remote_pubkey,remoteaddr,payload, message_hash)
+   # asyncio.create_task(handler(remote_pubkey,remoteaddr,payload, message_hash,db))
+    return handler(remote_pubkey,remoteaddr,payload, message_hash,db)
 
 async def send_ping_v4(hostname,port):
 
@@ -344,7 +344,6 @@ async def find_node_to_lookup(redis):
     sql = f"select id,nodeid,ip,port,publickey from ethereum_active_nodes"
     result = await redis.execute(sql, 1)
     write_log(len(result).__str__()+'  len')
-    print(len(result),'len')
     tasks=[]
     for row in result:
         nodeid = row[1]
@@ -378,7 +377,7 @@ async def find_node_to_ping(redis):
         ip= row[2]
         port=row[3]
         if myid != nodeid:
-            tasks.append(send_ping_v4(ip, int(port)))
+            tasks.append(asyncio.create_task(send_ping_v4(ip, int(port))))
     if tasks:
         await asyncio.wait(tasks)
 Kbucket=dict()
@@ -431,19 +430,19 @@ async def main(db):
     else:
         await inical(redis)
     while 1:
-        if int(time.time())<=BEGIN_TIME+CYCLE_TIME and MODE:
+        if int(time.time()) <= BEGIN_TIME+CYCLE_TIME and MODE:
             await find_node_to_ping(redis)
             await find_node_to_lookup(redis)
-        #    await asyncio.sleep(180)
+            # await asyncio.sleep(180)
         else:
             RECV_NUM+=1
             for i in range(20):
                 await find_node_to_lookup(redis)
-          #      await asyncio.sleep(180)
+                # await asyncio.sleep(180)
 from db import Db
 async def getredis():
-    dbconfig = {'sourcetable': 'ethereum', 'database': 'nodefinder_db2', 'databaseip': 'localhost',
-                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': '123456', 'condition': '',
+    dbconfig = {'sourcetable': 'ethereum', 'database': 'p2p', 'databaseip': 'localhost',
+                'databaseport': 3306, 'databaseuser': 'root', 'databasepassword': '', 'condition': '',
                 'conditionarr': []}
     db=await Db(dbconfig)
 
@@ -462,7 +461,6 @@ if __name__=='__main__':
     with open('data.txt', "a") as f:
         f.seek(0)
         f.truncate()   #清空文件
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0',30314))
     loop = asyncio.new_event_loop()
@@ -470,5 +468,4 @@ if __name__=='__main__':
     redis=loop.run_until_complete(getredis())
     loop.add_reader(sock, _onrecv,sock,redis)
     loop.create_task(main(redis))
-    #loop.create_task(sendmsg(redis,sock))
     loop.run_forever()
